@@ -18,10 +18,16 @@ or long-lived `hermes-agent` container is included.
 ```bash
 cp .env.agent.example .env.agent
 scripts/setup-native-agent.sh
+hermes --version
 docker compose --env-file .env.agent -f docker-compose.agent.yml pull hindsight hindsight-postgres
 docker compose --env-file .env.agent -f docker-compose.agent.yml build hermes-cron-memory-ingestor
 docker compose --env-file .env.agent -f docker-compose.agent.yml up -d --remove-orphans
 ```
+
+For migrations from the old Docker CLI flow, verify `hermes --version` works
+through the native `/usr/local/bin/hermes` wrapper and confirm
+`/home/hermes_data/config.yaml` was generated before starting compose with
+`--remove-orphans`.
 
 `--remove-orphans` removes services left over from older deployments, including
 the former `hermes-agent` service.
@@ -85,6 +91,13 @@ Host-native Hermes reaches Hindsight through `http://localhost:18888`. The
 Dockerized cron memory ingestor reaches the same service through
 `http://hindsight:8888` on the compose network.
 
+The host-native Hindsight URL is written by `scripts/setup-native-agent.sh`
+from `HOST_HINDSIGHT_API_URL`, which defaults to `http://localhost:18888`:
+
+```env
+HOST_HINDSIGHT_API_URL=http://localhost:18888
+```
+
 The OpenAI-compatible image endpoint is configured with environment variables
 in `.env.agent`:
 
@@ -94,12 +107,10 @@ OPENAI_BASE_URL=https://api.husanai.com/v1
 OPENAI_IMAGE_MODEL=gpt-image-2-medium
 ```
 
-Hindsight local external mode is configured for the Dockerized sidecars through
-the compose environment:
+The Dockerized cron memory ingestor uses `HINDSIGHT_URL`, which defaults to the
+compose service URL:
 
 ```env
-HINDSIGHT_MODE=local_external
-HINDSIGHT_API_URL=http://hindsight:8888
 HINDSIGHT_URL=http://hindsight:8888
 ```
 

@@ -101,9 +101,11 @@ def load_config(config_path: Path) -> dict[str, Any]:
     except Exception as exc:
         raise ConfigInitError(f"could not read YAML config {config_path}: {exc}") from exc
 
+    if loaded is None:
+        return {}
     if isinstance(loaded, dict):
         return loaded
-    return {}
+    raise ConfigInitError(f"YAML config {config_path} must be a mapping")
 
 
 def update_config(

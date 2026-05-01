@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,10 @@ HERMES_CHILD_DIRS = (
     "workspace",
     "home",
 )
+
+
+class ConfigInitError(RuntimeError):
+    """Raised when an existing config cannot be safely updated."""
 
 
 def _env_default(name: str, fallback: str) -> str:
@@ -93,8 +98,8 @@ def load_config(config_path: Path) -> dict[str, Any]:
 
     try:
         loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    except Exception as exc:
+        raise ConfigInitError(f"could not read YAML config {config_path}: {exc}") from exc
 
     if isinstance(loaded, dict):
         return loaded
@@ -138,21 +143,37 @@ def write_config(config_path: Path, config: dict[str, Any]) -> None:
 
 
 def write_hindsight_config(
-    hermes_home: Path,
+    config_path: Path,
+    config: dict[str, Any],
     *,
     api_url: str,
     bank_id: str,
     recall_budget: str,
 ) -> None:
-    config = {
-        "mode": "local_external",
-        "api_url": api_url,
-        "bank_id": bank_id,
-        "recall_budget": recall_budget,
-        "memory_mode": "hybrid",
-    }
-    config_path = hermes_home / "hindsight" / "config.json"
+    config.update(
+        {
+            "mode": "local_external",
+            "api_url": api_url,
+            "bank_id": bank_id,
+            "recall_budget": recall_budget,
+            "memory_mode": "hybrid",
+        }
+    )
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
+
+def load_hindsight_config(config_path: Path) -> dict[str, Any]:
+    if not config_path.exists():
+        return {}
+
+    try:
+        loaded = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ConfigInitError(f"could not read Hindsight config {config_path}: {exc}") from exc
+
+    if not isinstance(loaded, dict):
+        raise ConfigInitError(f"Hindsight config {config_path} must be a JSON object")
+    return loaded
 
 
 def main() -> int:
@@ -163,6 +184,9 @@ def main() -> int:
 
     config_path = hermes_home / "config.yaml"
     config = load_config(config_path)
+    hindsight_config_path = hermes_home / "hindsight" / "config.json"
+    hindsight_config = load_hindsight_config(hindsight_config_path)
+
     update_config(
         config,
         memory_provider=args.memory_provider,
@@ -171,7 +195,8 @@ def main() -> int:
     )
     write_config(config_path, config)
     write_hindsight_config(
-        hermes_home,
+        hindsight_config_path,
+        hindsight_config,
         api_url=args.hindsight_api_url,
         bank_id=args.hindsight_bank_id,
         recall_budget=args.hindsight_budget,
@@ -181,4 +206,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except ConfigInitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)

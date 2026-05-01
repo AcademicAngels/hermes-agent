@@ -54,11 +54,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+printf -v wrapper_env_file '%q' "$ENV_FILE"
+printf -v wrapper_default_hermes_home '%q' "$HERMES_DATA_DIR"
+printf -v wrapper_default_venv_dir '%q' "$HERMES_VENV_DIR"
+
 cat >"$wrapper_tmp" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE='$ENV_FILE'
+ENV_FILE=$wrapper_env_file
+DEFAULT_HERMES_HOME=$wrapper_default_hermes_home
+DEFAULT_HERMES_VENV_DIR=$wrapper_default_venv_dir
+ORIGINAL_HERMES_HOME="\${HERMES_HOME:-}"
 
 if [[ -f "\$ENV_FILE" ]]; then
   set -a
@@ -66,10 +73,14 @@ if [[ -f "\$ENV_FILE" ]]; then
   set +a
 fi
 
-: "\${HERMES_DATA_DIR:=/home/hermes_data}"
-: "\${HERMES_HOME:=\${HERMES_DATA_DIR:-/home/hermes_data}}"
-: "\${HERMES_VENV_DIR:=$HERMES_VENV_DIR}"
-export HERMES_HOME
+: "\${HERMES_DATA_DIR:=\$DEFAULT_HERMES_HOME}"
+: "\${HERMES_VENV_DIR:=\$DEFAULT_HERMES_VENV_DIR}"
+
+if [[ -n "\$ORIGINAL_HERMES_HOME" ]]; then
+  export HERMES_HOME="\$ORIGINAL_HERMES_HOME"
+else
+  export HERMES_HOME="\${HERMES_HOME:-\$HERMES_DATA_DIR}"
+fi
 
 exec "\$HERMES_VENV_DIR/bin/hermes" "\$@"
 EOF

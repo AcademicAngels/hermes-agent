@@ -16,6 +16,7 @@ fi
 : "${HERMES_RUNTIME_DIR:=/home/hermes_runtime}"
 : "${HERMES_VENV_DIR:=$HERMES_RUNTIME_DIR/venv}"
 : "${UV_CACHE_DIR:=$HERMES_RUNTIME_DIR/uv-cache}"
+: "${PIP_CACHE_DIR:=$HERMES_RUNTIME_DIR/pip-cache}"
 : "${HOST_HINDSIGHT_API_URL:=http://localhost:18888}"
 : "${HINDSIGHT_BANK_ID:=hermes}"
 : "${HINDSIGHT_BUDGET:=mid}"
@@ -25,21 +26,23 @@ fi
 
 export HERMES_HOME="$HERMES_DATA_DIR"
 export UV_CACHE_DIR
-
-if ! command -v uv >/dev/null 2>&1; then
-  echo "error: uv is required on PATH. Install uv and rerun this script." >&2
-  exit 1
-fi
+export PIP_CACHE_DIR
 
 install -d -m 755 "$HERMES_RUNTIME_DIR"
 install -d -m 700 "$HERMES_DATA_DIR"
 install -d -m 755 "$(dirname -- "$WRAPPER_PATH")"
 
-if [[ ! -x "$HERMES_VENV_DIR/bin/python" ]]; then
-  uv venv "$HERMES_VENV_DIR" --python "$PYTHON_BIN"
+if command -v uv >/dev/null 2>&1; then
+  if [[ ! -x "$HERMES_VENV_DIR/bin/python" ]]; then
+    uv venv "$HERMES_VENV_DIR" --python "$PYTHON_BIN"
+  fi
+  uv pip install --python "$HERMES_VENV_DIR/bin/python" -e "$REPO_DIR[all]"
+else
+  if [[ ! -x "$HERMES_VENV_DIR/bin/python" ]]; then
+    "$PYTHON_BIN" -m venv "$HERMES_VENV_DIR"
+  fi
+  "$HERMES_VENV_DIR/bin/python" -m pip install -e "$REPO_DIR[all]"
 fi
-
-uv pip install --python "$HERMES_VENV_DIR/bin/python" -e "$REPO_DIR[all]"
 
 "$HERMES_VENV_DIR/bin/python" "$REPO_DIR/scripts/native_agent_config_init.py" \
   --hermes-home "$HERMES_HOME" \

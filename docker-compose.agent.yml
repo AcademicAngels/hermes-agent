@@ -8,71 +8,16 @@
 #   cp .env.agent.example .env.agent
 #   install -d -m 700 /home/hermes_data
 #   docker compose --env-file .env.agent -f docker-compose.agent.yml \
-#     pull hermes-agent hermes-config-init hindsight hindsight-postgres
+#     pull hindsight hindsight-postgres
 #   docker compose --env-file .env.agent -f docker-compose.agent.yml \
 #     build hermes-cron-memory-ingestor
 #   docker compose --env-file .env.agent -f docker-compose.agent.yml up -d
 #
 # Native Hermes CLI:
-#   docker compose --env-file .env.agent -f docker-compose.agent.yml \
-#     exec hermes-agent hermes
+#   scripts/setup-native-agent.sh
+#   hermes
 #
 services:
-  hermes-config-init:
-    image: ${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:latest}
-    container_name: ${HERMES_CONFIG_INIT_CONTAINER_NAME:-hermes-config-init}
-    restart: "no"
-    command:
-      - /opt/hermes/.venv/bin/python
-      - /opt/hermes/docker/agent_compose_init.py
-    volumes:
-      - ${HERMES_DATA_DIR:-/home/hermes_data}:/home/agent/.hermes
-      - ./docker/agent_compose_init.py:/opt/hermes/docker/agent_compose_init.py:ro
-    environment:
-      HERMES_HOME: /home/agent/.hermes
-      HERMES_UID: ${HERMES_UID:-10000}
-      HERMES_GID: ${HERMES_GID:-10000}
-      HERMES_AGENT_MEMORY_PROVIDER: ${HERMES_AGENT_MEMORY_PROVIDER:-hindsight}
-      HERMES_AGENT_IMAGE_PROVIDER: ${HERMES_AGENT_IMAGE_PROVIDER:-openai}
-      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2-medium}
-      HINDSIGHT_MODE: ${HINDSIGHT_MODE:-local_external}
-      HINDSIGHT_API_URL: ${HINDSIGHT_API_URL:-http://hindsight:8888}
-      HINDSIGHT_BANK_ID: ${HINDSIGHT_BANK_ID:-hermes}
-      HINDSIGHT_BUDGET: ${HINDSIGHT_BUDGET:-mid}
-    networks:
-      - hermes-agent-net
-
-  hermes-agent:
-    image: ${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:latest}
-    container_name: ${HERMES_AGENT_CONTAINER_NAME:-hermes-agent}
-    restart: unless-stopped
-    stdin_open: true
-    tty: true
-    command: ["sleep", "infinity"]
-    volumes:
-      - ${HERMES_DATA_DIR:-/home/hermes_data}:/home/agent/.hermes
-    environment:
-      HERMES_HOME: /home/agent/.hermes
-      HERMES_UID: ${HERMES_UID:-10000}
-      HERMES_GID: ${HERMES_GID:-10000}
-      TZ: ${TZ:-Asia/Shanghai}
-      HERMES_TIMEZONE: ${HERMES_TIMEZONE:-Asia/Shanghai}
-      HINDSIGHT_MODE: ${HINDSIGHT_MODE:-local_external}
-      HINDSIGHT_API_URL: ${HINDSIGHT_API_URL:-http://hindsight:8888}
-      HINDSIGHT_BANK_ID: ${HINDSIGHT_BANK_ID:-hermes}
-      HINDSIGHT_BUDGET: ${HINDSIGHT_BUDGET:-mid}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.husanai.com/v1}
-      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2-medium}
-      PATH: /opt/hermes/.venv/bin:/home/agent/.hermes/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-    depends_on:
-      hermes-config-init:
-        condition: service_completed_successfully
-      hindsight:
-        condition: service_started
-    networks:
-      - hermes-agent-net
-
   hindsight-postgres:
     image: ${HINDSIGHT_DB_IMAGE:-timescale/timescaledb-ha:pg18-all-oss}
     container_name: ${HINDSIGHT_DB_CONTAINER_NAME:-hindsight-postgres}
@@ -130,8 +75,6 @@ services:
     expose:
       - "${CRON_MEMORY_EVENT_PORT:-8787}"
     depends_on:
-      hermes-config-init:
-        condition: service_completed_successfully
       hindsight:
         condition: service_started
     networks:

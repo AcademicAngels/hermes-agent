@@ -1,34 +1,33 @@
-# Agent-First Docker Deployment
+# Native Hermes Agent With Docker Sidecars
 
-This deployment keeps `docker-compose.yml` aligned with upstream and uses
-`docker-compose.agent.yml` for the local agent-first stack.
+This deployment runs the Hermes CLI natively on the host and uses
+`docker-compose.agent.yml` for the local Hindsight sidecars.
 
 ## Services
 
-- `hermes-agent` runs the native Hermes Agent image and stays alive for CLI use.
-- `hermes-config-init` initializes `/home/agent/.hermes` with agent-first
-  defaults before the long-lived services start.
+- Host `hermes` runs natively from `/home/hermes_runtime/venv`.
 - `hindsight-postgres` stores Hindsight data with pgvectorscale/DiskANN.
 - `hindsight` provides the local external Hindsight API and UI.
 - `hermes-cron-memory-ingestor` retains cron output into Hindsight.
 
-No `hermes-webui`, proxy, dashboard, Web UI token, Web UI port, or Web UI volume
-is included.
+No `hermes-webui`, proxy, dashboard, Web UI token, Web UI port, Web UI volume,
+or long-lived `hermes-agent` container is included.
 
 ## Start
 
 ```bash
 cp .env.agent.example .env.agent
-install -d -m 700 /home/hermes_data
-docker compose --env-file .env.agent -f docker-compose.agent.yml \
-  pull hermes-agent hermes-config-init hindsight hindsight-postgres
-docker compose --env-file .env.agent -f docker-compose.agent.yml \
-  build hermes-cron-memory-ingestor
-docker compose --env-file .env.agent -f docker-compose.agent.yml up -d
+scripts/setup-native-agent.sh
+docker compose --env-file .env.agent -f docker-compose.agent.yml pull hindsight hindsight-postgres
+docker compose --env-file .env.agent -f docker-compose.agent.yml build hermes-cron-memory-ingestor
+docker compose --env-file .env.agent -f docker-compose.agent.yml up -d --remove-orphans
 ```
 
-`hermes-agent`, `hermes-config-init`, `hindsight`, and `hindsight-postgres` use
-published images. The database image defaults to
+`--remove-orphans` removes services left over from older deployments, including
+the former `hermes-agent` service.
+
+`hindsight` and `hindsight-postgres` use published images. The database image
+defaults to
 `timescale/timescaledb-ha:pg18-all-oss` because Z.ai `embedding-3` returns
 2048-dimensional vectors, which exceed pgvector HNSW's 2000-dimensional index
 limit. `hermes-cron-memory-ingestor` is built locally from the sibling
@@ -38,24 +37,25 @@ writing Hermes cron output into Hindsight memory.
 ## Native CLI
 
 ```bash
-docker compose --env-file .env.agent -f docker-compose.agent.yml \
-  exec hermes-agent hermes
+hermes
+hermes --version
+hermes model
 ```
 
-The host data directory is `/home/hermes_data`. Inside containers it is mounted
-at `/home/agent/.hermes` and exposed to Hermes as `HERMES_HOME`.
+`/usr/local/bin/hermes` is a host wrapper for
+`/home/hermes_runtime/venv/bin/hermes`. It loads `.env.agent`, defaults
+`HERMES_HOME=/home/hermes_data`, and runs the native CLI directly without
+calling Docker.
+
+The host data directory is `/home/hermes_data`.
 Hindsight Postgres data is stored under
 `/home/hermes_data/hindsight-postgres`, mounted at `/var/lib/postgresql` inside
 the database container to match the PostgreSQL 18 image layout.
 
-The `hermes` executable still comes from the image installation under
-`/opt/hermes/.venv/bin`; the compose file adds that directory to `PATH` so the
-CLI command can stay short. `/home/hermes_data` remains data-only.
-
 ## Hermes Config
 
-The stack creates `/home/hermes_data/config.yaml` on first start and applies
-these native Hermes settings:
+`scripts/setup-native-agent.sh` creates `/home/hermes_data/config.yaml` and
+applies these native Hermes settings:
 
 ```yaml
 memory:
@@ -74,12 +74,16 @@ Hindsight:
 ```json
 {
   "mode": "local_external",
-  "api_url": "http://hindsight:8888",
+  "api_url": "http://localhost:18888",
   "bank_id": "hermes",
   "recall_budget": "mid",
   "memory_mode": "hybrid"
 }
 ```
+
+Host-native Hermes reaches Hindsight through `http://localhost:18888`. The
+Dockerized cron memory ingestor reaches the same service through
+`http://hindsight:8888` on the compose network.
 
 The OpenAI-compatible image endpoint is configured with environment variables
 in `.env.agent`:
@@ -90,7 +94,8 @@ OPENAI_BASE_URL=https://api.husanai.com/v1
 OPENAI_IMAGE_MODEL=gpt-image-2-medium
 ```
 
-Hindsight local external mode is configured through the compose environment:
+Hindsight local external mode is configured for the Dockerized sidecars through
+the compose environment:
 
 ```env
 HINDSIGHT_MODE=local_external

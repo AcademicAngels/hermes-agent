@@ -11,7 +11,7 @@
 #     pull hindsight hindsight-postgres
 #   docker compose --env-file .env.agent -f docker-compose.agent.yml \
 #     build hermes-cron-memory-ingestor
-#   docker compose --env-file .env.agent -f docker-compose.agent.yml up -d
+#   docker compose --env-file .env.agent -f docker-compose.agent.yml up -d --remove-orphans
 #
 # Native Hermes CLI:
 #   scripts/setup-native-agent.sh

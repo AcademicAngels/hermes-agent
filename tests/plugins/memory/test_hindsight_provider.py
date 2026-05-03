@@ -863,6 +863,64 @@ class TestSyncTurn:
 
 
 # ---------------------------------------------------------------------------
+# Delegation memory tests
+# ---------------------------------------------------------------------------
+
+
+class TestDelegationRetain:
+    def test_on_delegation_disabled_by_default(self, provider):
+        provider.on_delegation(
+            "inspect deployment",
+            "found sidecar config issue",
+            child_session_id="child-1",
+        )
+        provider._retain_queue.join()
+        provider._client.aretain.assert_not_called()
+
+    def test_on_delegation_retains_with_configured_structure(self, provider_with_config):
+        p = provider_with_config(
+            delegation_retain=True,
+            delegation_context="structured delegation memory",
+            delegation_tags=["type:subagent_result", "source:delegation"],
+            delegation_metadata={
+                "memory_type": "subagent_result",
+                "scope": "task",
+                "child_session": "{child_session_id}",
+            },
+            delegation_content_template=(
+                "TASK:\n{task}\n\nRESULT:\n{result}\n\nCHILD:\n{child_session_id}"
+            ),
+        )
+        def _capture_retain(operation):
+            coro = operation(p._client)
+            coro.close()
+
+        p._run_hindsight_operation = _capture_retain
+
+        p.on_delegation(
+            "inspect deployment",
+            "found sidecar config issue",
+            child_session_id="child-1",
+        )
+        p._retain_queue.join()
+
+        p._client.aretain.assert_called_once()
+        call_kwargs = p._client.aretain.call_args.kwargs
+        assert call_kwargs["bank_id"] == "test-bank"
+        assert call_kwargs["content"] == (
+            "TASK:\ninspect deployment\n\n"
+            "RESULT:\nfound sidecar config issue\n\n"
+            "CHILD:\nchild-1"
+        )
+        assert call_kwargs["context"] == "structured delegation memory"
+        assert call_kwargs["tags"] == ["type:subagent_result", "source:delegation"]
+        assert call_kwargs["metadata"]["memory_type"] == "subagent_result"
+        assert call_kwargs["metadata"]["scope"] == "task"
+        assert call_kwargs["metadata"]["child_session"] == "child-1"
+        assert call_kwargs["metadata"]["session_id"] == "test-session"
+
+
+# ---------------------------------------------------------------------------
 # Shutdown / writer tests
 # ---------------------------------------------------------------------------
 
@@ -1115,6 +1173,8 @@ class TestConfigSchema:
             "recall_tags", "recall_tags_match",
             "auto_recall", "auto_retain",
             "retain_every_n_turns", "retain_async", "retain_context",
+            "delegation_retain", "delegation_context", "delegation_tags",
+            "delegation_metadata", "delegation_content_template",
             "recall_max_tokens", "recall_max_input_chars",
             "recall_prompt_preamble",
         }
@@ -1444,4 +1504,3 @@ class TestShutdown:
         embedded.close.assert_called_once()
         assert embedded._client is None
         assert provider._client is None
-

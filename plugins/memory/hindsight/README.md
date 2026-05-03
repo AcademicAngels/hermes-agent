@@ -90,6 +90,36 @@ Config file: `~/.hermes/hindsight/config.json`
 | `retain_user_prefix` | `User` | Label used before user turns in auto-retained transcripts |
 | `retain_assistant_prefix` | `Assistant` | Label used before assistant turns in auto-retained transcripts |
 
+### Delegation Retain
+
+Optional retention of parent-observed subagent results. Disabled by default so Hindsight does not change existing delegation behavior unless configured.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `delegation_retain` | `false` | Retain completed subagent task results observed by the parent agent |
+| `delegation_context` | `delegated subagent task result` | Context label for retained delegation results |
+| `delegation_tags` | — | Tags applied to retained delegation results; merged with `retain_tags` |
+| `delegation_metadata` | `{}` | JSON object of metadata for retained delegation results |
+| `delegation_content_template` | `Task:\n{task}\n\nResult:\n{result}` | Template for retained content |
+
+Supported placeholders in `delegation_context`, `delegation_tags`, `delegation_metadata`, and `delegation_content_template`: `{task}`, `{result}`, `{child_session_id}`, `{session_id}`, `{platform}`, `{agent_identity}`.
+
+Example:
+
+```json
+{
+  "delegation_retain": true,
+  "delegation_context": "structured subagent result for long-term task memory",
+  "delegation_tags": ["type:subagent_result", "source:delegation"],
+  "delegation_metadata": {
+    "memory_type": "subagent_result",
+    "scope": "task",
+    "child_session": "{child_session_id}"
+  },
+  "delegation_content_template": "TASK:\n{task}\n\nRESULT:\n{result}\n\nCHILD:\n{child_session_id}"
+}
+```
+
 ### Integration
 
 | Key | Default | Description |

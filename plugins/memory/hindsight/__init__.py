@@ -77,6 +77,51 @@ def _parse_int_setting(value: Any, default: int) -> int:
         return default
 
 
+def _parse_bool_setting(value: Any, default: bool) -> bool:
+    """Parse a bool config/env value, falling back on invalid input."""
+    if isinstance(value, bool):
+        return value
+    if value is None or value == "":
+        return default
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _normalize_metadata_mapping(value: Any) -> Dict[str, Any]:
+    """Normalize a config value into a metadata mapping."""
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return {}
+        if isinstance(parsed, dict):
+            return dict(parsed)
+    return {}
+
+
+class _SafeFormatDict(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _format_with_placeholders(template: Any, values: Dict[str, Any]) -> str:
+    """Format a user-configured template without failing on unknown fields."""
+    text = str(template or "")
+    try:
+        return text.format_map(_SafeFormatDict(values))
+    except ValueError:
+        return text
+
+
 def _check_local_runtime() -> tuple[bool, str | None]:
     """Return whether local embedded Hindsight imports cleanly.
 
@@ -477,6 +522,11 @@ class HindsightMemoryProvider(MemoryProvider):
         self._retain_context = "conversation between Hermes Agent and the User"
         self._turn_counter = 0
         self._session_turns: list[str] = []  # accumulates ALL turns for the session
+        self._delegation_retain = False
+        self._delegation_context = "delegated subagent task result"
+        self._delegation_tags: List[str] = []
+        self._delegation_metadata: Dict[str, Any] = {}
+        self._delegation_content_template = "Task:\n{task}\n\nResult:\n{result}"
 
         # Recall controls
         self._auto_recall = True
@@ -763,6 +813,11 @@ class HindsightMemoryProvider(MemoryProvider):
             {"key": "retain_every_n_turns", "description": "Retain every N turns (1 = every turn)", "default": 1},
             {"key": "retain_async","description": "Process retain asynchronously on the Hindsight server", "default": True},
             {"key": "retain_context", "description": "Context label for retained memories", "default": "conversation between Hermes Agent and the User"},
+            {"key": "delegation_retain", "description": "Retain parent-observed subagent task results", "default": False},
+            {"key": "delegation_context", "description": "Context label for retained delegation results", "default": "delegated subagent task result"},
+            {"key": "delegation_tags", "description": "Tags applied to retained delegation results (comma-separated)", "default": ""},
+            {"key": "delegation_metadata", "description": "JSON object of metadata for delegation results; values may use placeholders {task}, {result}, {child_session_id}, {session_id}, {platform}, {agent_identity}", "default": "{}"},
+            {"key": "delegation_content_template", "description": "Template for retained delegation content; placeholders: {task}, {result}, {child_session_id}, {session_id}, {platform}, {agent_identity}", "default": "Task:\\n{task}\\n\\nResult:\\n{result}"},
             {"key": "recall_max_tokens", "description": "Maximum tokens for recall results", "default": 4096},
             {"key": "recall_max_input_chars", "description": "Maximum input query length for auto-recall", "default": 800},
             {"key": "recall_prompt_preamble", "description": "Custom preamble for recalled memories in context"},
@@ -1044,6 +1099,20 @@ class HindsightMemoryProvider(MemoryProvider):
         self._auto_retain = self._config.get("auto_retain", True)
         self._retain_every_n_turns = max(1, int(self._config.get("retain_every_n_turns", 1)))
         self._retain_context = self._config.get("retain_context", "conversation between Hermes Agent and the User")
+        self._delegation_retain = _parse_bool_setting(self._config.get("delegation_retain"), False)
+        self._delegation_context = str(
+            self._config.get("delegation_context", "delegated subagent task result")
+        )
+        self._delegation_tags = _normalize_retain_tags(self._config.get("delegation_tags"))
+        self._delegation_metadata = _normalize_metadata_mapping(
+            self._config.get("delegation_metadata")
+        )
+        self._delegation_content_template = str(
+            self._config.get(
+                "delegation_content_template",
+                "Task:\n{task}\n\nResult:\n{result}",
+            )
+        )
 
         # Recall controls
         self._auto_recall = self._config.get("auto_recall", True)
@@ -1421,6 +1490,77 @@ class HindsightMemoryProvider(MemoryProvider):
                 return tool_error(f"Failed to reflect: {e}")
 
         return tool_error(f"Unknown tool: {tool_name}")
+
+    def on_delegation(
+        self,
+        task: str,
+        result: str,
+        *,
+        child_session_id: str = "",
+        **kwargs,
+    ) -> None:
+        """Retain parent-observed subagent results when configured."""
+        if not self._delegation_retain:
+            return
+        if self._shutting_down.is_set():
+            logger.debug("on_delegation: skipped (shutting down)")
+            return
+        if not (task or result):
+            return
+
+        placeholders: Dict[str, Any] = {
+            "task": task or "",
+            "result": result or "",
+            "child_session_id": child_session_id or "",
+            "session_id": self._session_id or "",
+            "platform": self._platform or "",
+            "agent_identity": self._agent_identity or "",
+        }
+        for key, value in kwargs.items():
+            placeholders[str(key)] = value if value is not None else ""
+
+        content = _format_with_placeholders(
+            self._delegation_content_template,
+            placeholders,
+        ).strip()
+        if not content:
+            return
+
+        metadata = self._build_metadata(message_count=1, turn_index=self._turn_index)
+        for key, value in self._delegation_metadata.items():
+            metadata[str(key)] = _format_with_placeholders(value, placeholders)
+
+        retain_context = _format_with_placeholders(
+            self._delegation_context,
+            placeholders,
+        )
+        delegation_tags = [
+            _format_with_placeholders(tag, placeholders)
+            for tag in self._delegation_tags
+        ]
+        delegation_tags = _normalize_retain_tags(delegation_tags)
+        bank_id = self._bank_id
+        retain_async_flag = self._retain_async
+
+        def _do_retain() -> None:
+            retain_kwargs = self._build_retain_kwargs(
+                content,
+                context=retain_context,
+                metadata=metadata,
+                tags=delegation_tags,
+                retain_async=retain_async_flag,
+            )
+            logger.debug(
+                "Hindsight delegation retain: bank=%s, child_session=%s, content_len=%d",
+                bank_id,
+                child_session_id or "",
+                len(content),
+            )
+            self._run_hindsight_operation(lambda client: client.aretain(**retain_kwargs))
+
+        self._ensure_writer()
+        self._register_atexit()
+        self._retain_queue.put(_do_retain)
 
     def on_session_switch(
         self,

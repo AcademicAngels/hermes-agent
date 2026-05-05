@@ -904,9 +904,15 @@ class TestDelegationRetain:
         )
         p._retain_queue.join()
 
-        p._client.aretain.assert_called_once()
-        call_kwargs = p._client.aretain.call_args.kwargs
-        assert call_kwargs["bank_id"] == "test-bank"
+        p._client.aretain_batch.assert_called_once()
+        batch_kwargs = p._client.aretain_batch.call_args.kwargs
+        assert batch_kwargs["bank_id"] == "test-bank"
+        assert batch_kwargs["retain_async"] is True
+        assert "document_id" not in batch_kwargs
+        assert len(batch_kwargs["items"]) == 1
+        call_kwargs = batch_kwargs["items"][0]
+        assert "bank_id" not in call_kwargs
+        assert "retain_async" not in call_kwargs
         assert call_kwargs["content"] == (
             "TASK:\ninspect deployment\n\n"
             "RESULT:\nfound sidecar config issue\n\n"

@@ -1548,15 +1548,22 @@ class HindsightMemoryProvider(MemoryProvider):
                 context=retain_context,
                 metadata=metadata,
                 tags=delegation_tags,
-                retain_async=retain_async_flag,
             )
+            retain_kwargs.pop("bank_id", None)
+            retain_kwargs.pop("retain_async", None)
             logger.debug(
                 "Hindsight delegation retain: bank=%s, child_session=%s, content_len=%d",
                 bank_id,
                 child_session_id or "",
                 len(content),
             )
-            self._run_hindsight_operation(lambda client: client.aretain(**retain_kwargs))
+            self._run_hindsight_operation(
+                lambda client: client.aretain_batch(
+                    bank_id=bank_id,
+                    items=[retain_kwargs],
+                    retain_async=retain_async_flag,
+                )
+            )
 
         self._ensure_writer()
         self._register_atexit()

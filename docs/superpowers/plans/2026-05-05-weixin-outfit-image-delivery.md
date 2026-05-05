@@ -14,6 +14,9 @@
 
 - Runtime config: `/home/hermes_data/cron/jobs.json`
   - Updated indirectly with `hermes cron edit`; do not edit by hand unless the CLI fails.
+  - The job also needs `enabled_toolsets` to include `image_gen`; the current
+    CLI has no `cron edit --toolset` flag, so this field is patched with a
+    small JSON update after backing up the file.
 - Runtime persona source: `/home/hermes_data/SOUL.md`
   - Read-only source for the `Appearance System` and `Outfit System`.
 - Verification outputs: `/home/hermes_data/cron/output/dfc99065dc6e/*.md`
@@ -187,6 +190,49 @@ rg -n "dfc99065dc6e|\"deliver\": \"weixin\"|SOUL.md|image_generate|MEDIA:<image>
 ```
 
 Expected: matches for all listed markers.
+
+- [ ] **Step 4: Add the image generation toolset to the job allowlist**
+
+Run:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("/home/hermes_data/cron/jobs.json")
+data = json.loads(path.read_text())
+changed = False
+for job in data.get("jobs", []):
+    if job.get("id") != "dfc99065dc6e":
+        continue
+    toolsets = job.get("enabled_toolsets") or []
+    if "image_gen" not in toolsets:
+        toolsets.append("image_gen")
+        job["enabled_toolsets"] = toolsets
+        changed = True
+    break
+else:
+    raise SystemExit("job dfc99065dc6e not found")
+
+if changed:
+    data["updated_at"] = data.get("updated_at")
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+PY
+```
+
+Expected: command exits 0.
+
+- [ ] **Step 5: Confirm `image_gen` is enabled for this job**
+
+Run:
+
+```bash
+rg -n '"enabled_toolsets"|"image_gen"' /home/hermes_data/cron/jobs.json
+```
+
+Expected: the `dfc99065dc6e` job's `enabled_toolsets` includes `terminal`,
+`file`, and `image_gen`.
 
 ## Task 3: Verify Runtime Readiness
 

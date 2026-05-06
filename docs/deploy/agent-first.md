@@ -68,9 +68,10 @@ memory:
   provider: hindsight
 
 image_gen:
-  provider: openai
+  provider: openai-compatible
   model: gpt-image-2-medium
-  openai:
+  openai_compatible:
+    endpoint: custom:ttp
     model: gpt-image-2-medium
 ```
 
@@ -98,13 +99,42 @@ from `HOST_HINDSIGHT_API_URL`, which defaults to `http://localhost:18888`:
 HOST_HINDSIGHT_API_URL=http://localhost:18888
 ```
 
-The OpenAI-compatible image endpoint is configured with environment variables
-in `.env.agent`:
+Local Hermes extensions are kept outside this repository in the plugin pack:
 
-```env
-OPENAI_API_KEY=...
-OPENAI_BASE_URL=https://api.husanai.com/v1
-OPENAI_IMAGE_MODEL=gpt-image-2-medium
+```text
+/home/github/hermes-atomic-arsenal
+https://github.com/AcademicAngels/hermes-atomic-arsenal
+```
+
+The current OpenAI-compatible image generation path is provided by the
+`openai-compatible` user plugin from that plugin pack. It uses
+`custom_providers` as a multi-capability endpoint registry; `custom:ttp`
+remains the TTP aggregation endpoint and is not treated as an image-only
+backend.
+
+Expected image plugin config:
+
+```yaml
+plugins:
+  enabled:
+    - openai-compatible
+
+image_gen:
+  provider: openai-compatible
+  model: gpt-image-2-medium
+  openai_compatible:
+    endpoint: custom:ttp
+    model: gpt-image-2-medium
+```
+
+Install or refresh the plugin pack locally with:
+
+```bash
+cd /home/github/hermes-atomic-arsenal
+python3 scripts/install.py openai-compatible --home /home/hermes_data --force --enable
+env HERMES_HOME=/home/hermes_data /usr/local/bin/hermes config set image_gen.provider openai-compatible
+env HERMES_HOME=/home/hermes_data /usr/local/bin/hermes config set image_gen.openai_compatible.endpoint custom:ttp
+env HERMES_HOME=/home/hermes_data /usr/local/bin/hermes config set image_gen.openai_compatible.model gpt-image-2-medium
 ```
 
 The Dockerized cron memory ingestor uses `HINDSIGHT_URL`, which defaults to the
@@ -135,9 +165,17 @@ HINDSIGHT_EMBEDDINGS_OPENAI_MODEL=...
 The current deployment is host-native Hermes plus Docker sidecars. Do not use
 the old `hermes-web-ui` deployment path as the operational source of truth.
 
+Local feature code must not be added to this `hermes-agent` checkout. This
+repository follows upstream Hermes Agent updates; site-specific capabilities
+belong in `/home/github/hermes-atomic-arsenal` as user plugins. If a capability
+cannot be implemented through existing plugin/tool hooks, document the
+limitation and consider an upstream issue or PR instead of maintaining a local
+source fork.
+
 ### Runtime Layout
 
 - Repository: `/home/github/hermes-agent`
+- Local plugin pack: `/home/github/hermes-atomic-arsenal`
 - Native runtime: `/home/hermes_runtime/venv`
 - Host wrapper: `/usr/local/bin/hermes`
 - Hermes data: `/home/hermes_data`
@@ -184,6 +222,41 @@ Expected sidecars:
 `docker-compose.agent.yml` intentionally does not manage a Hermes gateway
 container. The cron memory ingestor does not trigger Hermes cron jobs; it only
 scans completed cron output and retains it into Hindsight.
+
+### Local Plugin Operations
+
+The local plugin pack is the deployment-owned extension point:
+
+```bash
+cd /home/github/hermes-atomic-arsenal
+git pull --ff-only
+python3 scripts/install.py --home /home/hermes_data --force --enable
+```
+
+After installing or updating plugins, restart the native gateway so the plugin
+manager reloads user plugins:
+
+```bash
+env HERMES_HOME=/home/hermes_data /usr/local/bin/hermes gateway restart --system
+```
+
+Verify the active image provider:
+
+```bash
+env HERMES_HOME=/home/hermes_data python - <<'PY'
+from hermes_cli import plugins as plugins_module
+from agent import image_gen_registry
+plugins_module._ensure_plugins_discovered(force=True)
+active = image_gen_registry.get_active_provider()
+print({"active": active.name if active else None, "available": active.is_available() if active else None})
+PY
+```
+
+Expected output:
+
+```text
+{'active': 'openai-compatible', 'available': True}
+```
 
 ### Gateway Service Operations
 

@@ -42,12 +42,14 @@ The final response delivered by cron should be:
 <visible Chinese outfit text>
 
 MEDIA:/home/hermes_data/cache/images/<generated-image>.png
+MEDIA:/home/hermes_data/cache/images/<generated-detail-image>.png
 ```
 
 The `MEDIA:` line is included only when `image_generate` returns success and
 the `image` field is a usable local absolute path or otherwise deliverable
-image reference. If image generation fails, the final response contains only
-the outfit text and does not mention the failure.
+image reference. The job may emit one image or multiple images. If image
+generation fails, the final response contains only the outfit text and does not
+mention the failure.
 
 ## Prompt Rules
 
@@ -59,13 +61,16 @@ The daily outfit cron prompt should instruct the agent to:
   scene, emotional baseline, and physical constraints.
 - Preserve persona continuity: rational, restrained, gentle, coherent, and
   celestial-agent-like without turning the image into symbolic abstraction.
-- Generate a full-body or three-quarter portrait of one person wearing the
-  complete outfit.
+- Generate a primary full-body or three-quarter portrait of one person wearing
+  the complete outfit.
 - Include body-worn layering: inner layer, main clothing, outerwear, lower
   garment, socks or legwear, shoes, accessories, makeup, hairstyle, posture,
   lighting, and scene.
-- Add negative constraints: no flat lay, no product catalog, no mannequin, no
-  outfit collage, no clothing-only image, no text labels, no watermark.
+- Add negative constraints to the primary image: no flat lay, no product
+  catalog, no mannequin, no clothing-only image, no watermark.
+- When the outfit needs explanation, generate a second detail image that can
+  function as a three-view or layer-breakdown board. Keep it fashion-focused
+  and persona-bound rather than a pure product sheet.
 
 The image prompt should preferably be English or concise mixed Chinese-English
 because image models tend to follow visual constraints more consistently in
@@ -79,7 +84,7 @@ English.
 4. The agent builds an image prompt from SOUL appearance guidance plus the
    outfit text.
 5. The agent calls `image_generate(prompt=image_prompt, aspect_ratio="portrait")`.
-6. On success, the final response appends `MEDIA:<image_path>`.
+6. On success, the final response appends one or more `MEDIA:<image_path>` lines.
 7. Cron delivery resolves `deliver=weixin`, strips the `MEDIA:` tag from user
    text, and asks the Weixin adapter to upload the image.
 8. The text remains the source of truth for the daily outfit; the image is an

@@ -144,6 +144,33 @@ compose service URL:
 HINDSIGHT_URL=http://hindsight:8888
 ```
 
+The ingestor's structured outfit event endpoint listens on container port
+`8787`. Docker-internal callers can use:
+
+```text
+http://hermes-cron-memory-ingestor:8787/v1/outfit/events
+```
+
+Host-native Hermes processes, including ordinary Weixin conversations, cannot
+resolve the Docker service DNS name. They must use the published host port
+instead:
+
+```text
+http://127.0.0.1:18787/v1/outfit/events
+http://64.83.43.72:18787/v1/outfit/events
+```
+
+The published port is configured by:
+
+```env
+CRON_MEMORY_EVENT_PUBLIC_HOST=0.0.0.0
+CRON_MEMORY_EVENT_PUBLIC_PORT=18787
+```
+
+If the public endpoint is exposed beyond the host, restrict it at the firewall
+or network layer. The endpoint is intended for trusted local/runtime callers,
+not anonymous internet traffic.
+
 Hindsight itself also needs LLM credentials. Embeddings use Hindsight's
 OpenAI-compatible provider with Z.ai `embedding-3`. If a database was previously
 initialized with a different embedding dimension, back it up and reinitialize
@@ -314,21 +341,40 @@ Current daily outfit job:
 - Name: `夏尔每日穿搭结果推送`
 - Schedule: `0 8 * * *`
 - Skill: `charlotte-outfit-system`
-- Delivery: `local`
+- Delivery: `weixin`
 - Workdir: unset
 
-This job is treated as daily outfit memory generation, not external platform
-push. `deliver=local` means:
+This job is treated as daily outfit memory generation with Weixin delivery.
+`deliver=weixin` means:
 
 - the cron job still runs through Hermes
 - output is saved to `/home/hermes_data/cron/output/dfc99065dc6e/`
 - `hermes-cron-memory-ingestor` can retain the output into Hindsight
-- no external chat/platform delivery is attempted
+- the final response may include one or more `MEDIA:<path>` lines, and the
+  gateway will forward the generated images to Weixin as native attachments
 
 Do not use `deliver=origin` for this job unless it is created from a live
 gateway conversation with a valid stored origin. In the host-native deployment,
 this job has no origin, so `deliver=origin` cannot resolve a visible delivery
 target.
+
+The runtime prompt currently instructs the job to preserve Hindsight anchors for
+`daily-outfit`, `weixin-visible`, `replaceable-outfit`, and `multi-image`, so
+ordinary Weixin replies like “换一套” can be resolved from memory instead of
+from cron context.
+
+The runtime persona file `/home/hermes_data/SOUL.md` also contains global
+Outfit System rules for ordinary Weixin follow-ups:
+
+- short replies such as “换一套” and “不满意这套” refer to the most recent daily
+  outfit by default
+- the agent should recall Hindsight before generating the replacement
+- user feedback and replacement outfits should be stored as outfit memory
+  events through `http://64.83.43.72:18787/v1/outfit/events`
+- if that endpoint is unavailable, the agent should fall back to
+  `hindsight_retain`
+- final responses must not expose tool calls, Hindsight results, ingestor
+  errors, or internal execution notes
 
 Useful checks:
 

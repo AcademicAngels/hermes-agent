@@ -74,6 +74,8 @@ services:
       INGESTOR_TAGS: ${CRON_MEMORY_TAGS:-hermes,cron}
     expose:
       - "${CRON_MEMORY_EVENT_PORT:-8787}"
+    ports:
+      - "${CRON_MEMORY_EVENT_PUBLIC_HOST:-127.0.0.1}:${CRON_MEMORY_EVENT_PUBLIC_PORT:-18787}:${CRON_MEMORY_EVENT_PORT:-8787}"
     depends_on:
       hindsight:
         condition: service_started
